@@ -2,6 +2,28 @@ import { generateIdempotencyKey, generateDeliveryId } from './idempotency.util';
 
 describe('Idempotency Utils', () => {
   describe('generateIdempotencyKey', () => {
+    it('deduplicates poll replays but not later selections, other voters, chats or sessions', () => {
+      const vote = {
+        sessionId: 'A',
+        pollId: 'P1',
+        chatId: 'c1',
+        voterId: 'v1',
+        selectedOptions: ['Yes'],
+        timestamp: 1.123,
+      };
+      const key = generateIdempotencyKey('poll.vote', vote, 'dispatch-one');
+      expect(generateIdempotencyKey('poll.vote', vote, 'dispatch-two')).toBe(key);
+      for (const change of [
+        { timestamp: 2.123 },
+        { sessionId: 'B' },
+        { voterId: 'v2' },
+        { chatId: 'c2' },
+        { selectedOptions: ['No'] },
+        { selectedOptions: [] },
+      ]) {
+        expect(generateIdempotencyKey('poll.vote', { ...vote, ...change })).not.toBe(key);
+      }
+    });
     it('should generate a session-scoped key for message.received', () => {
       const key = generateIdempotencyKey('message.received', { messageId: 'ABC123', sessionId: 'A' });
       expect(key).toBe('msg_A_ABC123');

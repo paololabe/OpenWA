@@ -66,7 +66,7 @@ MessageType = Literal[
 ]
 WebhookEvent = Literal[
     "message.received", "message.sent", "message.ack", "message.failed", "message.revoked",
-    "message.reaction", "message.edited", "session.status", "session.qr", "session.authenticated",
+    "message.reaction", "poll.vote", "message.edited", "session.status", "session.qr", "session.authenticated",
     "session.disconnected", "session.reconnect_loop", "session.restriction", "presence.update",
     "group.join", "group.leave", "group.update", "group.join_request",
     "call.received", "status.received",
@@ -76,7 +76,7 @@ WebhookEvent = Literal[
 # The events a delivery can carry: WebhookEvent without the "*" subscription wildcard.
 WebhookDeliveryEvent = Literal[
     "message.received", "message.sent", "message.ack", "message.failed", "message.revoked",
-    "message.reaction", "message.edited", "session.status", "session.qr", "session.authenticated",
+    "message.reaction", "poll.vote", "message.edited", "session.status", "session.qr", "session.authenticated",
     "session.disconnected", "session.reconnect_loop", "session.restriction", "presence.update",
     "group.join", "group.leave", "group.update", "group.join_request",
     "call.received", "status.received",

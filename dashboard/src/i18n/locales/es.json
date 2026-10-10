@@ -527,6 +527,7 @@
       "message.failed": "Cuando falla la entrega de un mensaje saliente",
       "message.revoked": "Cuando se elimina un mensaje para todos",
       "message.reaction": "Cuando se añade, cambia o quita una reacción",
+      "poll.vote": "Cuando se emite, cambia o retira un voto en una encuesta",
       "message.edited": "Cuando se edita un mensaje",
       "session.status": "Cuando cambia el estado de una sesión",
       "session.qr": "Cuando se genera un código QR",

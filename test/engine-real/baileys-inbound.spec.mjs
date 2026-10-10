@@ -15,6 +15,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { createCipheriv, createHash, createHmac } from 'node:crypto';
 
 process.env.MEDIA_DOWNLOAD_ENABLED = 'false';
 
@@ -33,15 +34,18 @@ const silent = { log() {}, debug() {}, verbose() {}, warn() {}, error() {} };
  * Feed one message through the upsert handler and resolve with whichever callback it reaches first.
  * A message that reaches none resolves as 'none' once the handler has had time to settle.
  */
-function deliver(object) {
+function deliver(object, { poll, selfLid, warnings, priorMessages = [] } = {}) {
+  let storeWrite = Promise.resolve();
   const message = lib.proto.WebMessageInfo.fromObject({ messageTimestamp: 1_700_000_000, ...object });
+  // Baileys decorates the key with LID/phone twins that are not fields in WAProto.
+  message.key = { ...message.key, ...object.key };
   return new Promise(resolve => {
     const to = kind => payload => resolve({ kind, payload });
     const noop = () => undefined;
     const events = new BaileysEvents({
       getSocket: () => ({ updateMediaMessage: noop }),
-      getSocketOrNull: () => null,
-      logger: silent,
+      getSocketOrNull: () => ({ user: { id: SELF, lid: selfLid } }),
+      logger: { ...silent, warn: (...args) => warnings?.push(args) },
       toNeutralJid: jid => jid.replace('@s.whatsapp.net', '@c.us'),
       normalizedSelfJid: () => SELF,
       loadLib: () => Promise.resolve(lib),
@@ -50,27 +54,202 @@ function deliver(object) {
       recordKeyLidMappings: noop,
       recordMessage: noop,
       recordMessageEdit: noop,
-      putStoredMessage: () => undefined,
+      putStoredMessage: msg => {
+        if (priorMessages.length) {
+          storeWrite = new Promise(resolve =>
+            setImmediate(() => {
+              poll = msg;
+              resolve();
+            }),
+          );
+          return storeWrite;
+        }
+        return undefined;
+      },
       updateStoredMessage: () => undefined,
       consumeOwnSend: () => false,
-      getStoredMessage: () => undefined,
-      getOnMessage: () => to('message'),
-      getOnMessageCreate: () => to('create'),
+      // The production message store's reads wait for earlier writes of the same id.
+      getStoredMessage: id =>
+        priorMessages.length
+          ? storeWrite.then(() => (id === poll?.key.id ? poll : null))
+          : id === poll?.key.id
+            ? Promise.resolve(poll)
+            : undefined,
+      getLoadedLib: () => lib,
+      getOnMessage: () => (priorMessages.length ? noop : to('message')),
+      getOnMessageCreate: () => (priorMessages.length ? noop : to('create')),
       getOnMessageRevoked: () => to('revoked'),
       getOnMessageEdited: () => to('edited'),
       getOnMessageReaction: () => to('reaction'),
+      getOnPollVote: () => to('poll.vote'),
       getOnMessageAck: () => undefined,
       getOnGroupEvent: () => undefined,
       getOnCall: () => undefined,
       getOnPresenceUpdate: () => undefined,
       getOnCallOutcome: () => undefined,
     });
-    events.handleMessagesUpsert({ messages: [message], type: 'notify' });
+    events.handleMessagesUpsert({ messages: [...priorMessages, message], type: 'notify' });
     setTimeout(() => resolve({ kind: 'none' }), 2000).unref();
   });
 }
 
 const inbound = (id, message, key = {}) => ({ key: { id, remoteJid: PEER, fromMe: false, ...key }, message });
+
+// Construct a real encrypted WhatsApp vote, not a stubbed decryptPollVote result.
+function pollVoteFixture({
+  selected = ['Yes'],
+  version = 'pollCreationMessage',
+  wrapped = false,
+  creator = SELF,
+  voter = PEER,
+  ownVote = false,
+  voterKey,
+  chatId = GROUP,
+} = {}) {
+  const secret = Buffer.alloc(32, 7);
+  const pollKey = {
+    id: 'POLL1',
+    remoteJid: chatId,
+    fromMe: creator === SELF,
+    ...(chatId.endsWith('@g.us') ? { participant: creator } : {}),
+  };
+  const poll = lib.proto.WebMessageInfo.fromObject({
+    key: pollKey,
+    message: {
+      messageContextInfo: { messageSecret: secret },
+      [version]: { name: 'Coming?', options: [{ optionName: 'Yes' }, { optionName: 'No' }] },
+    },
+  });
+  const sign = Buffer.concat([
+    Buffer.from('POLL1'),
+    Buffer.from(creator),
+    Buffer.from(voter),
+    Buffer.from('Poll Vote'),
+    Buffer.from([1]),
+  ]);
+  const key0 = createHmac('sha256', Buffer.alloc(32)).update(secret).digest();
+  const key = createHmac('sha256', key0).update(sign).digest();
+  const iv = Buffer.alloc(12, 5);
+  const cipher = createCipheriv('aes-256-gcm', key, iv);
+  cipher.setAAD(Buffer.from(`POLL1\u0000${voter}`));
+  const plain = lib.proto.Message.PollVoteMessage.encode({
+    selectedOptions: selected.map(name => createHash('sha256').update(name).digest()),
+  }).finish();
+  const encrypted = Buffer.concat([cipher.update(plain), cipher.final(), cipher.getAuthTag()]);
+  const message = {
+    pollUpdateMessage: {
+      pollCreationMessageKey: pollKey,
+      vote: { encPayload: encrypted, encIv: iv },
+      senderTimestampMs: 1791633600123,
+    },
+  };
+  return {
+    poll,
+    envelope: {
+      key: {
+        id: 'VOTE1',
+        remoteJid: chatId,
+        fromMe: ownVote,
+        ...(chatId.endsWith('@g.us') ? { participant: voter } : {}),
+        ...voterKey,
+      },
+      message: wrapped ? { ephemeralMessage: { message } } : message,
+    },
+  };
+}
+
+for (const version of ['pollCreationMessage', 'pollCreationMessageV2', 'pollCreationMessageV3']) {
+  test(`decrypts votes against a stored ${version}, preserving names and millisecond vote time`, async () => {
+    const { poll, envelope } = pollVoteFixture({ version, selected: ['Yes', 'No'], wrapped: true });
+    const result = await deliver(envelope, { poll });
+    assert.equal(result.kind, 'poll.vote');
+    assert.deepEqual(result.payload, {
+      pollId: 'POLL1',
+      chatId: GROUP,
+      voterId: PEER.replace('@s.whatsapp.net', '@c.us'),
+      selectedOptions: ['Yes', 'No'],
+      timestamp: 1791633600.123,
+    });
+  });
+}
+
+test('reports a withdrawn vote as an empty selection, never as a chat message', async () => {
+  const { poll, envelope } = pollVoteFixture({ selected: [] });
+  const result = await deliver(envelope, { poll });
+  assert.equal(result.kind, 'poll.vote');
+  assert.deepEqual(result.payload.selectedOptions, []);
+});
+
+test('waits for an earlier poll creation in the same upsert to be stored before decrypting', async () => {
+  const { poll, envelope } = pollVoteFixture();
+  const result = await deliver(envelope, { priorMessages: [poll] });
+  assert.equal(result.kind, 'poll.vote');
+  assert.deepEqual(result.payload.selectedOptions, ['Yes']);
+});
+
+test('decrypts a one-to-one vote without a group participant key', async () => {
+  const { poll, envelope } = pollVoteFixture({ chatId: PEER });
+  const result = await deliver(envelope, { poll });
+  assert.equal(result.kind, 'poll.vote');
+  assert.equal(result.payload.chatId, PEER.replace('@s.whatsapp.net', '@c.us'));
+  assert.equal(result.payload.voterId, PEER.replace('@s.whatsapp.net', '@c.us'));
+});
+
+test("decrypts a vote on another participant's poll", async () => {
+  const { poll, envelope } = pollVoteFixture({ creator: '6282222222222@s.whatsapp.net' });
+  assert.equal((await deliver(envelope, { poll })).kind, 'poll.vote');
+});
+
+test('attributes an own-device vote to the session, not the other participant', async () => {
+  const { poll, envelope } = pollVoteFixture({ voter: SELF, ownVote: true });
+  const result = await deliver(envelope, { poll });
+  assert.equal(result.kind, 'poll.vote');
+  assert.equal(result.payload.voterId, SELF.replace('@s.whatsapp.net', '@c.us'));
+});
+
+test('authenticates the supplied LID/phone twins without decrypting against neutral JIDs', async () => {
+  const { poll, envelope } = pollVoteFixture({ voterKey: { participant: LID, participantAlt: PEER } });
+  const result = await deliver(envelope, { poll });
+  assert.equal(result.kind, 'poll.vote');
+  assert.equal(result.payload.voterId, LID);
+});
+
+test('decrypts own-device LID votes using the session LID', async () => {
+  const { poll, envelope } = pollVoteFixture({ voter: LID, ownVote: true });
+  const result = await deliver(envelope, { poll, selfLid: LID });
+  assert.equal(result.kind, 'poll.vote');
+  assert.equal(result.payload.voterId, SELF.replace('@s.whatsapp.net', '@c.us'));
+});
+
+test('warns and emits nothing when the original poll is unavailable', async () => {
+  const { envelope } = pollVoteFixture();
+  const warnings = [];
+  assert.equal((await deliver(envelope, { warnings })).kind, 'none');
+  assert.match(warnings[0][0], /original poll or message secret is unavailable/);
+});
+
+test('warns and emits nothing on an unauthenticated vote', async () => {
+  const { poll, envelope } = pollVoteFixture();
+  envelope.message.pollUpdateMessage.vote.encPayload[0] ^= 1;
+  const warnings = [];
+  assert.equal((await deliver(envelope, { poll, warnings })).kind, 'none');
+  assert.match(warnings[0][0], /Could not decrypt poll vote/);
+});
+
+test('rejects a vote that points at a poll from another chat', async () => {
+  const { poll, envelope } = pollVoteFixture();
+  envelope.key.remoteJid = '120363999999999999@g.us';
+  const warnings = [];
+  assert.equal((await deliver(envelope, { poll, warnings })).kind, 'none');
+  assert.match(warnings[0][0], /another chat/);
+});
+
+test('rejects an authenticated vote naming an option outside the original poll', async () => {
+  const { poll, envelope } = pollVoteFixture({ selected: ['Not an option'] });
+  const warnings = [];
+  assert.equal((await deliver(envelope, { poll, warnings })).kind, 'none');
+  assert.match(warnings[0][0], /unknown option/);
+});
 
 test('a conversation message is text with its body', async () => {
   const { kind, payload } = await deliver(inbound('A1', { conversation: 'hello' }));

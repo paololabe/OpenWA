@@ -2334,8 +2334,8 @@ describe('BaileysAdapter inbound fan-out', () => {
     ] as const)('live, %s: emits and stores only the real message', async (_label, fromMe, callback) => {
       const emitted = jest.fn();
       const adapter = newAdapter();
-      const logger = (adapter as unknown as { logger: { debug: (m: string, meta?: unknown) => void } }).logger;
-      const debug = jest.spyOn(logger, 'debug').mockImplementation(() => undefined);
+      const logger = (adapter as unknown as { logger: { warn: (m: string, meta?: unknown) => void } }).logger;
+      const warn = jest.spyOn(logger, 'warn').mockImplementation(() => undefined);
       await adapter.initialize({ [callback]: emitted });
       fakeSock.fire('messages.upsert', { type: 'notify', messages: batch(fromMe) });
       await new Promise(r => setImmediate(r));
@@ -2345,9 +2345,9 @@ describe('BaileysAdapter inbound fan-out', () => {
       expect(emitted).toHaveBeenCalledWith(expect.objectContaining({ id: 'TEXT', type: 'text' }));
       const stored = fakeStore.put.mock.calls as Array<[string, { key: { id: string } }]>;
       expect(stored.map(([, m]) => m.key.id)).toEqual(['TEXT']);
-      expect(debug).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.objectContaining({ msgId: 'VOTE', contentType: 'pollUpdateMessage' }),
+      expect(warn).toHaveBeenCalledWith(
+        'Cannot decrypt poll vote: original poll or message secret is unavailable',
+        expect.objectContaining({ pollId: 'POLL1' }),
       );
     });
 

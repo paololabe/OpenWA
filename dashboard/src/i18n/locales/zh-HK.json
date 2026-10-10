@@ -521,6 +521,7 @@
       "message.failed": "發出的訊息傳送失敗時",
       "message.revoked": "訊息被收回時",
       "message.reaction": "新增、變更或移除回應時",
+      "poll.vote": "提交、更改或撤回投票時",
       "message.edited": "訊息被編輯時",
       "session.status": "工作階段狀態變更時",
       "session.qr": "產生 QR 碼時",

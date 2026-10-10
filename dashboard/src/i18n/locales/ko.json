@@ -521,6 +521,7 @@
       "message.failed": "보낸 메시지의 전달이 실패했을 때",
       "message.revoked": "메시지가 모두에게서 삭제되었을 때",
       "message.reaction": "반응이 추가, 변경 또는 삭제되었을 때",
+      "poll.vote": "설문 투표가 제출, 변경 또는 취소되었을 때",
       "message.edited": "메시지가 수정되었을 때",
       "session.status": "세션 상태가 바뀌었을 때",
       "session.qr": "QR 코드가 생성되었을 때",

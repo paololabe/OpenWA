@@ -534,6 +534,7 @@
       "message.failed": "כאשר מסירת הודעה יוצאת נכשלת",
       "message.revoked": "כאשר הודעה נמחקת אצל כולם",
       "message.reaction": "כאשר תגובה נוספת, משתנה או מוסרת",
+      "poll.vote": "כאשר הצבעה בסקר נשלחת, משתנה או מבוטלת",
       "message.edited": "כאשר הודעה נערכת",
       "session.status": "כאשר הסטטוס של Session משתנה",
       "session.qr": "כאשר נוצר קוד QR",

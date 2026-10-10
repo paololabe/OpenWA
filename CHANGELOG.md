@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Poll vote tracking via the `poll.vote` webhook and socket event on both engines, including
+  changed and withdrawn votes. Baileys decrypts votes against the stored original poll;
+  unavailable originals and decryption failures are logged instead of emitting empty messages.
+
 - Allow chat-restricted API keys to subscribe to chat WebSocket events.
 - Allow chat-restricted MCP keys to read and send within their chat allowlist using the REST authorization rules.
 - Carry `chatId` in `message.ack` and `message.failed` payloads so a webhook `chatId` filter scopes delivery events per chat.

@@ -521,6 +521,7 @@
       "message.failed": "When an outgoing message fails to deliver",
       "message.revoked": "When a message is deleted for everyone",
       "message.reaction": "When a reaction is added, changed or removed",
+      "poll.vote": "When a poll vote is cast, changed or withdrawn",
       "message.edited": "When a message is edited",
       "session.status": "When a session's status changes",
       "session.qr": "When QR code is generated",

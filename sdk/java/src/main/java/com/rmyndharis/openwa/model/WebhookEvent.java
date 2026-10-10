@@ -20,6 +20,8 @@ public enum WebhookEvent {
     MESSAGE_REVOKED,
     @SerializedName("message.reaction")
     MESSAGE_REACTION,
+    @SerializedName("poll.vote")
+    POLL_VOTE,
     @SerializedName("message.edited")
     MESSAGE_EDITED,
     @SerializedName("session.status")

@@ -521,6 +521,7 @@
       "message.failed": "Wenn eine ausgehende Nachricht nicht zugestellt werden kann",
       "message.revoked": "Wenn eine Nachricht für alle gelöscht wird",
       "message.reaction": "Wenn eine Reaktion hinzugefügt, geändert oder entfernt wird",
+      "poll.vote": "Wenn eine Umfragestimme abgegeben, geändert oder zurückgezogen wird",
       "message.edited": "Wenn eine Nachricht bearbeitet wird",
       "session.status": "Wenn sich der Status einer Sitzung ändert",
       "session.qr": "Wenn ein QR-Code erstellt wird",

@@ -70,6 +70,11 @@ export function generateIdempotencyKey(event: string, data: Record<string, unkno
       // distinct keys while retries of the same delivery stay stable.
       return `react_${toStr(data.sessionId)}_${toStr(data.messageId)}_${toStr(data.senderId)}${occurrence}`;
 
+    case 'poll.vote':
+      // The sender timestamp identifies a change, so redelivery dedupes but Yes -> No -> Yes
+      // stays distinct. Include the selection and chat to disambiguate same-time changes.
+      return `vote_${toStr(data.sessionId)}_${toStr(data.pollId)}_${toStr(data.voterId)}_${toStr(data.timestamp)}_${hashData({ chatId: data.chatId, options: JSON.stringify(data.selectedOptions) })}`;
+
     case 'session.status':
       // Salted so repeated transitions to the same status (e.g. across disconnect/reconnect cycles)
       // stay distinct instead of collapsing onto one key.

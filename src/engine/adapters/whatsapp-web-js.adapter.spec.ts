@@ -3795,6 +3795,77 @@ describe('WhatsAppWebJsAdapter inbound media (MEDIA_DOWNLOAD_ENABLED=false)', ()
   });
 });
 
+describe('WhatsAppWebJsAdapter poll votes', () => {
+  const wire = () => {
+    const adapter = new WhatsAppWebJsAdapter({
+      sessionId: 'sess-vote-test',
+      sessionDataPath: './data/sessions',
+      puppeteer: {},
+    });
+    const client = new EventEmitter();
+    const onPollVote = jest.fn();
+    (adapter as unknown as { client: unknown }).client = client;
+    (adapter as unknown as { callbacks: unknown }).callbacks = { onPollVote };
+    (adapter as unknown as { setupEventHandlers: () => void }).setupEventHandlers();
+    return { client, onPollVote };
+  };
+  const vote = (selection: string[] = ['Yes']) => ({
+    voter: '628111:3@s.whatsapp.net',
+    interractedAtTs: 1791633600123,
+    parentMessage: { id: { _serialized: 'true_120@g.us_P1' }, fromMe: true, from: 'me@c.us', to: '120@g.us' },
+    selectedOptions: selection.map((name, localId) => ({ name, localId })),
+  });
+
+  it.each([['Yes'], ['Yes', 'No'], []].map(selection => ({ selection })))(
+    'maps the complete selection $selection and the sender timestamp',
+    ({ selection }) => {
+      const { client, onPollVote } = wire();
+      client.emit('vote_update', vote(selection));
+      expect(onPollVote).toHaveBeenCalledWith({
+        pollId: 'true_120@g.us_P1',
+        chatId: '120@g.us',
+        voterId: '628111@c.us',
+        selectedOptions: selection,
+        timestamp: 1791633600.123,
+      });
+    },
+  );
+
+  it('reads the raw parent key on WA Web builds that renamed _serialized', () => {
+    const { client, onPollVote } = wire();
+    client.emit('vote_update', {
+      ...vote(),
+      parentMessage: undefined,
+      parentMsgKey: { $1: 'true_120@g.us_P1', remote: '120@g.us' },
+    });
+    expect(onPollVote).toHaveBeenCalledWith(
+      expect.objectContaining({ pollId: 'true_120@g.us_P1', chatId: '120@g.us' }),
+    );
+  });
+
+  it('uses the incoming poll conversation and preserves an unresolved LID voter', () => {
+    const { client, onPollVote } = wire();
+    const event = vote();
+    client.emit('vote_update', {
+      ...event,
+      voter: '999:3@lid',
+      parentMessage: { ...event.parentMessage, fromMe: false, from: '628222@c.us', to: 'me@c.us' },
+    });
+    expect(onPollVote).toHaveBeenCalledWith(expect.objectContaining({ chatId: '628222@c.us', voterId: '999@lid' }));
+  });
+
+  it.each([
+    { parentMessage: undefined },
+    { voter: '' },
+    { interractedAtTs: NaN },
+    { selectedOptions: [{ localId: 0 }] },
+  ])('does not publish an incomplete library vote: %j', incomplete => {
+    const { client, onPollVote } = wire();
+    client.emit('vote_update', { ...vote(), ...incomplete });
+    expect(onPollVote).not.toHaveBeenCalled();
+  });
+});
+
 describe('WhatsAppWebJsAdapter message_reaction (id resolution across WA Web builds)', () => {
   const wireReactionHandler = (): { onMessageReaction: jest.Mock; client: EventEmitter } => {
     const adapter = new WhatsAppWebJsAdapter({

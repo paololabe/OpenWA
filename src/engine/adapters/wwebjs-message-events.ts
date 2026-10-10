@@ -4,13 +4,15 @@ import {
   type IncomingMessage,
   type RevokedMessage,
   type ReactionEvent,
+  type PollVoteEvent,
   type EditedMessage,
 } from '../interfaces/whatsapp-engine.interface';
-import { type SerializedWid } from '../types/whatsapp-web-js.types';
+import { readWid, type SerializedWid } from '../types/whatsapp-web-js.types';
 import { buildEditedMessage, buildIncomingMessageBase, mapContactFields } from './message-mapper';
 import { extractWwebjsCall, plannedInboundDownload, wwebjsAckToDeliveryStatus } from './wwebjs-messaging';
 import { admitInboundSafely, inboundMediaTimeoutMs, withInboundDownloadTimeout } from './inbound-media-cap';
 import { type WwebjsEngineHost } from './wwebjs-host';
+import { toNeutralJid } from '../identity/wa-id';
 
 /**
  * Message-domain client events (message, message_create, ack, revoke, reaction, edit) extracted
@@ -201,6 +203,39 @@ export function registerWwebjsMessageEvents(client: Client, host: WwebjsEngineHo
       host.getCallbacks().onMessageEdited?.(payload);
     } catch (error) {
       host.logger.error('Error processing message_edit', String(error));
+    }
+  });
+
+  client.on('vote_update', vote => {
+    try {
+      // PollVote passes parentMsgKey through without normalizing it, and the library's typings
+      // omit that field. Read it as a fallback when the parent Message lacks its serialized id.
+      const rawVote = vote as typeof vote & { parentMsgKey?: SerializedWid & { remote?: string } };
+      const pollId = readWid(vote.parentMessage?.id) ?? readWid(rawVote.parentMsgKey);
+      const parent = vote.parentMessage;
+      const chatId = (parent?.fromMe ? parent.to : parent?.from) || rawVote.parentMsgKey?.remote;
+      if (
+        !pollId ||
+        !chatId ||
+        !vote.voter ||
+        !Number.isFinite(vote.interractedAtTs) ||
+        vote.interractedAtTs <= 0 ||
+        !Array.isArray(vote.selectedOptions) ||
+        vote.selectedOptions.some(option => typeof option.name !== 'string')
+      ) {
+        host.logger.warn('Ignoring poll vote with missing identity, timestamp or option names', { pollId });
+        return;
+      }
+      const event: PollVoteEvent = {
+        pollId,
+        chatId: toNeutralJid(chatId),
+        voterId: toNeutralJid(vote.voter, jid => host.config.lidMappingStore?.resolveLid(jid) ?? null),
+        selectedOptions: vote.selectedOptions.map(option => option.name),
+        timestamp: vote.interractedAtTs / 1000,
+      };
+      host.getCallbacks().onPollVote?.(event);
+    } catch (error) {
+      host.logger.error('Error processing vote_update', String(error));
     }
   });
 }

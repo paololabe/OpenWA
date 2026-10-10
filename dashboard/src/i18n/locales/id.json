@@ -521,6 +521,7 @@
       "message.failed": "Saat pesan keluar gagal terkirim",
       "message.revoked": "Saat pesan dihapus untuk semua orang",
       "message.reaction": "Saat reaksi ditambahkan, diubah atau dihapus",
+      "poll.vote": "Saat suara jajak pendapat diberikan, diubah atau ditarik",
       "message.edited": "Saat pesan diedit",
       "session.status": "Saat status sesi berubah",
       "session.qr": "Saat kode QR dibuat",

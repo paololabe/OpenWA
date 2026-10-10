@@ -842,7 +842,7 @@ OpenWA consumes events by normalizing them into `EngineEventCallbacks`; anything
 | `message_ciphertext`        | ❌           |     | `media_uploaded`       | ❌                                                                              |
 | `message_ciphertext_failed` | ❌           |     | `remote_session_saved` | ❌                                                                              |
 | `call`                      | ✅           |     | `unread_count`         | ❌ candidate                                                                    |
-| `qr`                        | ✅           |     | `vote_update`          | ❌ candidate (poll-vote webhook)                                                |
+| `qr`                        | ✅           |     | `vote_update`          | ✅ `poll.vote` webhook and socket event                                         |
 | `ready`                     | ✅           |     | `authenticated`        | ✅                                                                              |
 | `auth_failure`              | ✅           |     | `code`                 | ❌ — the pairing code is the return value of `requestPairingCode`, not an event |
 | `disconnected`              | ✅           |     | `group_join`           | ✅                                                                              |

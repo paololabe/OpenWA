@@ -25,6 +25,7 @@ import {
   IncomingMessage,
   InboundTicket,
   ReactionEvent,
+  PollVoteEvent,
   EditedMessage,
   RevokedMessage,
 } from '../../engine/interfaces/whatsapp-engine.interface';
@@ -1145,6 +1146,18 @@ export class MessageProjector {
     const revokedPayload = message as unknown as Record<string, unknown>;
     void this.webhookService.dispatch(id, 'message.revoked', revokedPayload);
     this.eventsGateway.emitMessageRevoked(id, revokedPayload);
+  }
+
+  handlePollVote(id: string, engine: IWhatsAppEngine, event: PollVoteEvent): void {
+    if (!this.engines.isLive(id, engine)) return;
+    if (!event.pollId || !event.chatId || !event.voterId || !Number.isFinite(event.timestamp) || event.timestamp <= 0) {
+      this.logger.warn('Ignoring poll vote with missing identity or timestamp', { sessionId: id });
+      return;
+    }
+    const payload = { ...event, selectedOptions: [...event.selectedOptions] };
+    const socketPayload = { ...event, selectedOptions: [...event.selectedOptions] };
+    void this.webhookService.dispatch(id, 'poll.vote', payload);
+    this.eventsGateway.emitPollVote(id, socketPayload);
   }
 
   /** History backfill persist, extracted to message-history-projector.ts (stateless function). */

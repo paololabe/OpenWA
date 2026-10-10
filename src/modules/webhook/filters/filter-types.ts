@@ -81,10 +81,13 @@ const BOOLEAN_OPERATORS: FilterOperator[] = ['is'];
 const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
 
 /**
- * Field registry keyed by event family. v1 ships `message`; `session`/`group`
- * slot in later by adding entries here, with no change to the evaluator.
+ * Field registry keyed by event family. New families add entries without changing the evaluator.
  */
 export const FILTER_FIELDS: Record<string, FieldDefinition[]> = {
+  poll: [
+    { field: 'sender', kind: 'id', operators: ID_OPERATORS, resolve: data => str(data.voterId) },
+    { field: 'chatId', kind: 'id', operators: ID_OPERATORS, resolve: data => str(data.chatId) },
+  ],
   message: [
     {
       field: 'sender',

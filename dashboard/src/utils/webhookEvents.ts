@@ -9,6 +9,7 @@ export const availableEventNames = [
   'message.failed',
   'message.revoked',
   'message.reaction',
+  'poll.vote',
   'message.edited',
   'session.status',
   'session.qr',

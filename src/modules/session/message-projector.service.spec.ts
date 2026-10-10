@@ -50,6 +50,7 @@ describe('MessageProjector', () => {
     emitMessageSent: jest.Mock;
     emitMessageRevoked: jest.Mock;
     emitMessageReaction: jest.Mock;
+    emitPollVote: jest.Mock;
   };
   let webhookService: { dispatch: jest.Mock };
   let hookManager: { execute: jest.Mock };
@@ -69,6 +70,7 @@ describe('MessageProjector', () => {
       emitMessageSent: jest.fn(),
       emitMessageRevoked: jest.fn(),
       emitMessageReaction: jest.fn(),
+      emitPollVote: jest.fn(),
     };
     webhookService = { dispatch: jest.fn().mockResolvedValue(undefined) };
     hookManager = { execute: jest.fn().mockResolvedValue(undefined) };
@@ -129,6 +131,50 @@ describe('MessageProjector', () => {
       await settle();
 
       expect(other).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('handlePollVote', () => {
+    const vote = {
+      pollId: 'POLL1',
+      chatId: '120363@g.us',
+      voterId: '628111@c.us',
+      selectedOptions: ['Yes'],
+      timestamp: 1791633600.123,
+    };
+
+    it.each([['Yes'], ['No', 'Maybe'], []].map(selection => ({ selection })))(
+      'dispatches the complete selection $selection without a stored message row',
+      ({ selection }) => {
+        const event = { ...vote, selectedOptions: selection };
+        projector.handlePollVote('s1', engine, event);
+        expect(webhookService.dispatch).toHaveBeenCalledWith('s1', 'poll.vote', event);
+        expect(eventsGateway.emitPollVote).toHaveBeenCalledWith('s1', event);
+        expect(messageRepository.findOne).not.toHaveBeenCalled();
+        expect(messageRepository.update).not.toHaveBeenCalled();
+      },
+    );
+
+    it('ignores events from a retired engine', () => {
+      engines.delete('s1');
+      projector.handlePollVote('s1', engine, vote);
+      expect(webhookService.dispatch).not.toHaveBeenCalled();
+      expect(eventsGateway.emitPollVote).not.toHaveBeenCalled();
+    });
+
+    it.each(['pollId', 'chatId', 'voterId'] as const)('does not dispatch a vote without %s', field => {
+      projector.handlePollVote('s1', engine, { ...vote, [field]: '' });
+      expect(webhookService.dispatch).not.toHaveBeenCalled();
+    });
+
+    it('isolates the socket selection from webhook hook mutations', () => {
+      webhookService.dispatch.mockImplementation((_id, _event, data: { selectedOptions: string[] }) => {
+        data.selectedOptions.push('hook-added');
+        return Promise.resolve();
+      });
+      projector.handlePollVote('s1', engine, vote);
+      expect(eventsGateway.emitPollVote).toHaveBeenCalledWith('s1', vote);
+      expect(vote.selectedOptions).toEqual(['Yes']);
     });
   });
 

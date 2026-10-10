@@ -212,6 +212,7 @@ describe('SessionService', () => {
       emitMessageAck: jest.fn(),
       emitMessageRevoked: jest.fn(),
       emitMessageReaction: jest.fn(),
+      emitPollVote: jest.fn(),
       emitMessageEdited: jest.fn(),
       emitGroupJoin: jest.fn(),
       emitGroupJoinRequest: jest.fn(),
@@ -5882,6 +5883,20 @@ describe('SessionService', () => {
       expect(row.author).toBe('628111@c.us');
       expect(row.from).toBe('120363@g.us');
       expect(row.chatName).toBe('Alice');
+    });
+
+    it('wires poll vote callbacks to webhook and socket delivery', async () => {
+      const callbacks = await startAndCaptureCallbacks();
+      const vote = {
+        pollId: 'P1',
+        chatId: '120@g.us',
+        voterId: '628111@c.us',
+        selectedOptions: ['Yes'],
+        timestamp: 1791633600.123,
+      };
+      callbacks.onPollVote!(vote);
+      expect(webhookService.dispatch).toHaveBeenCalledWith('sess-uuid-1', 'poll.vote', vote);
+      expect(eventsGateway.emitPollVote).toHaveBeenCalledWith('sess-uuid-1', vote);
     });
 
     it('scopes the ack status UPDATE by sessionId, not just waMessageId', async () => {

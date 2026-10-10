@@ -651,6 +651,17 @@ export interface EditedMessage {
   timestamp: number;
 }
 
+export interface PollVoteEvent {
+  /** Engine-specific id of the poll creation message, as returned by send-poll. */
+  pollId: string;
+  chatId: string;
+  voterId: string;
+  /** The voter's complete current selection by option name; [] withdraws their vote. */
+  selectedOptions: string[];
+  /** Unix seconds, retaining millisecond precision for ordering changes by the same voter. */
+  timestamp: number;
+}
+
 export interface ReactionEvent {
   messageId: string;
   chatId: string;
@@ -849,6 +860,7 @@ export interface EngineEventCallbacks {
   onMessageAck?: (messageId: string, status: DeliveryStatus, chatId?: string) => void;
   onMessageRevoked?: (message: RevokedMessage) => void;
   onMessageReaction?: (event: ReactionEvent) => void;
+  onPollVote?: (event: PollVoteEvent) => void;
   onMessageEdited?: (message: EditedMessage) => void;
   /**
    * Fired on group membership changes (join/leave), group metadata updates

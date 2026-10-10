@@ -69,6 +69,7 @@ const CHAT_EVENTS = new Set([
   'message.ack',
   'message.revoked',
   'message.reaction',
+  'poll.vote',
   'message.edited',
   'group.join',
   'group.leave',
@@ -944,6 +945,10 @@ export class EventsGateway implements OnGatewayInit, OnGatewayConnection, OnGate
    */
   emitMessageReaction(sessionId: string, data: Record<string, unknown>) {
     this.emitToRooms(sessionId, 'message.reaction', data);
+  }
+
+  emitPollVote(sessionId: string, data: Record<string, unknown>) {
+    this.emitToRooms(sessionId, 'poll.vote', data);
   }
 
   /**

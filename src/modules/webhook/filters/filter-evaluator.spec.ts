@@ -14,6 +14,16 @@ const msg = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
 const filters = (...conditions: WebhookFilters['conditions']): WebhookFilters => ({ conditions });
 
 describe('evaluateFilters', () => {
+  it('filters poll votes by voter and chat, including resolved LID voters', () => {
+    const f = filters(
+      { field: 'sender', operator: 'is', value: ['111@c.us'] },
+      { field: 'chatId', operator: 'is', value: ['120@g.us'] },
+    );
+    expect(evaluateFilters(f, 'poll.vote', { voterId: '111@c.us', chatId: '120@g.us' })).toBe(true);
+    expect(evaluateFilters(f, 'poll.vote', { voterId: '222@c.us', chatId: '120@g.us' })).toBe(false);
+    expect(evaluateFilters(f, 'poll.vote', { voterId: '111@c.us', chatId: '121@g.us' })).toBe(false);
+    expect(evaluateFilters(f, 'poll.vote', { voterId: '999@lid', chatId: '120@g.us' }, () => '111')).toBe(true);
+  });
   it('passes when filters are absent or empty (additive/optional)', () => {
     expect(evaluateFilters(null, 'message.received', msg())).toBe(true);
     expect(evaluateFilters(undefined, 'message.received', msg())).toBe(true);

@@ -7120,6 +7120,7 @@ message.sent
 message.ack
 message.revoked
 message.reaction
+poll.vote
 message.edited
 session.status
 session.qr
@@ -7198,6 +7199,50 @@ Every registered webhook receives an HTTP `POST` with a JSON body of this shape:
 ### Event catalog
 
 These are the events OpenWA actually emits. A webhook is registered with an `events` list; an event is delivered to a webhook when its `events` array includes the event name or `"*"`.
+
+#### Poll votes
+
+`poll.vote` fires when someone votes on a poll, changes their selection, or withdraws it.
+Both engines support it. Subscribe with `events: ["poll.vote"]` (or `["*"]`) on
+`POST /api/sessions/:sessionId/webhooks`; update an existing registration with
+`PUT /api/sessions/:sessionId/webhooks/:id`. It is also subscribable over the socket.
+
+```json
+{
+  "event": "poll.vote",
+  "timestamp": "2026-10-10T12:00:00.123Z",
+  "sessionId": "main",
+  "idempotencyKey": "<delivery idempotency key>",
+  "deliveryId": "<delivery id>",
+  "data": {
+    "pollId": "<id returned by send-poll>",
+    "chatId": "120363000000000000@g.us",
+    "voterId": "6281111111111@c.us",
+    "selectedOptions": ["Yes"],
+    "timestamp": 1791633600.123
+  }
+}
+```
+
+`pollId` is the engine-specific poll creation message id. `chatId` and `voterId` use the
+neutral JID dialect; a voter whose phone is unknown remains `@lid`. `data.timestamp` is
+the sender's vote time in Unix seconds, retaining millisecond precision. The envelope timestamp
+is the dispatch time. `selectedOptions` contains the voter's **complete current selection by
+option name**, not increments to a tally; `[]` clears their vote. Replace the selection stored
+under `(sessionId, pollId, voterId)`, ignoring older timestamps, and deduplicate deliveries using
+`idempotencyKey`. Replayed votes retain their key; a later re-selection receives a different key.
+The `sender` smart filter matches `voterId`, and the `chatId` filter matches the poll's conversation.
+Other message-family filters do not apply to `poll.vote`.
+
+**Baileys:** the encrypted vote is decoded using the original poll's `messageSecret` from
+the session's raw message store. Polls sent through this API are stored there. If the original
+poll is unavailable (for example, it predates the stored history or has been evicted), or
+decryption fails, the vote is not emitted and a warning identifies the poll. A history backfill
+does not emit old votes. Votes are not stored as chat messages and do not emit `message.received`
+or `message.sent`. **whatsapp-web.js:** the library's `vote_update` supplies option names;
+an event missing the parent identity or names is similarly warned and not emitted.
+
+#### Other events
 
 | Event                                             | When it fires                                                                                                                                                                                                                         | `data` payload sketch                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

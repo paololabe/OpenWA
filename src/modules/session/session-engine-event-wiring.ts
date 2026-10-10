@@ -249,6 +249,7 @@ export class SessionEngineEventWiring {
       onMessageAck: (messageId, status, chatId): void =>
         host.messages.handleMessageAck(id, engine, messageId, status, chatId),
       onMessageRevoked: (message): void => host.messages.handleMessageRevoked(id, engine, message),
+      onPollVote: (event): void => host.messages.handlePollVote(id, engine, event),
       onMessageReaction: (event): void => {
         if (!host.isLiveEngine(id, engine)) return;
         if (!event.messageId) {

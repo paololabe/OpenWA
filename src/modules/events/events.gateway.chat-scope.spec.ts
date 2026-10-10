@@ -149,6 +149,21 @@ describe('chat-scoped WebSocket rooms', () => {
     expect(events(allowed)).toHaveLength(1);
   });
 
+  it('delivers poll votes only to authorized chat rooms and unrestricted subscribers', async () => {
+    const allowed = await connect('allowed', [PHONE], null, '*');
+    const denied = await connect('denied', ['628999@c.us'], null, '*');
+    const unrestricted = await connect('unrestricted', null, null, '*');
+    gateway.emitPollVote('s1', { chatId: PHONE, pollId: 'P1', voterId: PHONE, selectedOptions: [] });
+    await flush();
+    expect(events(allowed).map(frame => frame.payload.event)).toEqual(['poll.vote']);
+    expect(events(denied)).toHaveLength(0);
+    expect(events(unrestricted)).toHaveLength(1);
+    gateway.emitPollVote('s1', { pollId: 'P1', selectedOptions: [] });
+    await flush();
+    expect(events(allowed)).toHaveLength(1);
+    expect(events(unrestricted)).toHaveLength(2);
+  });
+
   it('keeps equal phone and LID digits separate without a persisted mapping', async () => {
     const phone = await connect('phone', ['123456@c.us']);
     const lid = await connect('lid', ['123456@lid']);

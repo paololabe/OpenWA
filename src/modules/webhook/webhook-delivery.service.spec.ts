@@ -258,6 +258,42 @@ describe('WebhookDeliveryService', () => {
       mockFetch.mockReset();
     });
 
+    it.each(['poll.vote', '*'])('POSTs signed poll vote payloads to a %s subscription', async subscription => {
+      const secret = 'poll-vote-test-secret';
+      const webhook = createMockWebhook({ events: [subscription], secret });
+      (repository.find as jest.Mock).mockResolvedValue([webhook]);
+      (hookManager.execute as jest.Mock).mockResolvedValue({ continue: true, data: {} });
+      const data = {
+        pollId: 'P1',
+        chatId: '120@g.us',
+        voterId: '628111@c.us',
+        selectedOptions: [],
+        timestamp: 1791633600.123,
+      };
+      await service.dispatch('sess-1', 'poll.vote', data);
+      const [url, request] = mockFetch.mock.calls[0] as [string, { body: string; headers: Record<string, string> }];
+      expect(url).toBe(webhook.url);
+      const body = JSON.parse(request.body) as WebhookPayload;
+      expect(body).toMatchObject({ event: 'poll.vote', sessionId: 'sess-1', data });
+      expect(body.idempotencyKey).toContain('vote_sess-1_P1_628111@c.us_');
+      expect(request.headers['X-OpenWA-Event']).toBe('poll.vote');
+      expect(request.headers['X-OpenWA-Signature']).toBe(
+        `sha256=${crypto.createHmac('sha256', secret).update(request.body).digest('hex')}`,
+      );
+    });
+
+    it('does not send a poll vote to an ack-only webhook', async () => {
+      (repository.find as jest.Mock).mockResolvedValue([createMockWebhook({ events: ['message.ack'] })]);
+      await service.dispatch('sess-1', 'poll.vote', {
+        pollId: 'P1',
+        chatId: '120@g.us',
+        voterId: '628111@c.us',
+        selectedOptions: ['Yes'],
+        timestamp: 1,
+      });
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
     it('resolves (never rejects) when the webhook lookup fails — callers fire-and-forget it', async () => {
       (repository.find as jest.Mock).mockRejectedValue(new Error('db down'));
       await expect(service.dispatch('sess-1', 'message.received', { x: 1 })).resolves.toBeUndefined();

@@ -521,6 +521,7 @@
       "message.failed": "Giden bir mesaj teslim edilemediğinde",
       "message.revoked": "Bir mesaj herkesten silindiğinde",
       "message.reaction": "Bir tepki eklendiğinde, değiştirildiğinde veya kaldırıldığında",
+      "poll.vote": "Bir anket oyu verildiğinde, değiştirildiğinde veya geri çekildiğinde",
       "message.edited": "Bir mesaj düzenlendiğinde",
       "session.status": "Bir oturumun durumu değiştiğinde",
       "session.qr": "QR kodu oluşturulduğunda",

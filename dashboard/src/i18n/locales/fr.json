@@ -527,6 +527,7 @@
       "message.failed": "Lorsqu'un message sortant n'a pas pu être remis",
       "message.revoked": "Lorsqu'un message est supprimé pour tout le monde",
       "message.reaction": "Lorsqu'une réaction est ajoutée, modifiée ou retirée",
+      "poll.vote": "Lorsqu'un vote à un sondage est exprimé, modifié ou retiré",
       "message.edited": "Lorsqu'un message est modifié",
       "session.status": "Lorsque l'état d'une session change",
       "session.qr": "Lorsqu'un code QR est généré",

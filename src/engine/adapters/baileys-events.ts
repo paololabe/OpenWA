@@ -1,5 +1,6 @@
 import type * as BaileysLib from '@whiskeysockets/baileys';
 import type { WACallEvent, WAMessage, WAMessageKey, WASocket } from '@whiskeysockets/baileys';
+import { createHash } from 'node:crypto';
 import {
   EditedMessage,
   EngineEventCallbacks,
@@ -232,6 +233,7 @@ export interface BaileysEventsHost {
   getOnMessageEdited(): EngineEventCallbacks['onMessageEdited'];
   /** The currently-registered onMessageReaction callback, if any (assigned at initialize()). */
   getOnMessageReaction(): EngineEventCallbacks['onMessageReaction'];
+  getOnPollVote?(): EngineEventCallbacks['onPollVote'];
   /** The currently-registered onMessageAck callback, if any (assigned at initialize()). */
   getOnMessageAck(): EngineEventCallbacks['onMessageAck'];
   /** The currently-registered onGroupEvent callback, if any (assigned at initialize()). */
@@ -278,7 +280,7 @@ export class BaileysEvents {
    * Inbound messages still being processed, by id, with the key of the latest delivery, so an edit or
    * delete of one waits for its store write and a delete can be checked against its target meanwhile.
    */
-  private readonly inboundInFlight = new Map<string, { key: WAMessageKey; done: Promise<void> }>();
+  private readonly inboundInFlight = new Map<string, { key: WAMessageKey; poll: boolean; done: Promise<void> }>();
 
   /**
    * Ids of messages deleted for everyone, oldest first. The stored copy is emptied too, but that can
@@ -418,10 +420,12 @@ export class BaileysEvents {
       void processed.finally(() => ticket?.drop());
       const id = msg.key.id;
       if (id) {
+        const content = this.host.getLoadedLib?.()?.normalizeMessageContent(msg.message) ?? msg.message;
         // A repeat delivery can arrive while the first is still downloading and finish before it, so
         // a change waits for every delivery in flight, not only the latest.
         const tracked = {
           key: msg.key,
+          poll: !!(content?.pollCreationMessage ?? content?.pollCreationMessageV2 ?? content?.pollCreationMessageV3),
           done: Promise.all([this.inboundInFlight.get(id)?.done, processed]).then(() => undefined),
         };
         this.inboundInFlight.set(id, tracked);
@@ -645,7 +649,20 @@ export class BaileysEvents {
         return;
       }
 
-      // --- a vote, a pin, an album header and the like: don't emit onMessage ---
+      if (normalizedRoot?.pollUpdateMessage) {
+        // rc14 leaves its poll-vote decrypt/emit branch commented out. Handle the encrypted
+        // upsert here, never exposing the vote as a bodyless chat message.
+        const pollId = normalizedRoot.pollUpdateMessage.pollCreationMessageKey?.id;
+        const pending = pollId && pollId !== msg.key.id ? this.inboundInFlight.get(pollId) : undefined;
+        if (pending?.poll) {
+          if (opts.yieldSlot) await opts.yieldSlot(() => pending.done);
+          else await pending.done;
+        }
+        await this.processPollVote(msg, normalizedRoot.pollUpdateMessage, b);
+        return;
+      }
+
+      // --- a pin, an album header and the like: don't emit onMessage ---
       // They only point at another message, so mapped they would reach consumers, in either
       // direction, as a bodyless `unknown` message (see BAILEYS_NON_CONTENT_TYPES).
       if (contentType && BAILEYS_NON_CONTENT_TYPES.has(contentType)) {
@@ -753,6 +770,106 @@ export class BaileysEvents {
         err instanceof Error ? err.message : String(err),
       );
     }
+  }
+
+  private async processPollVote(
+    msg: WAMessage,
+    update: NonNullable<NonNullable<WAMessage['message']>['pollUpdateMessage']>,
+    b: typeof BaileysLib,
+  ): Promise<void> {
+    const key = update.pollCreationMessageKey;
+    const pollId = key?.id;
+    if (!key || !pollId || !update.vote || !msg.key.remoteJid) {
+      this.host.logger.warn('Ignoring incomplete poll vote', { msgId: msg.key.id, pollId });
+      return;
+    }
+    const original = await this.readStoredMessage(pollId, 'decrypting a poll vote');
+    const content = b.normalizeMessageContent(original?.message ?? undefined);
+    const secret = content?.messageContextInfo?.messageSecret;
+    const poll = content?.pollCreationMessage ?? content?.pollCreationMessageV2 ?? content?.pollCreationMessageV3;
+    if (!original || !secret || !poll?.options) {
+      this.host.logger.warn('Cannot decrypt poll vote: original poll or message secret is unavailable', { pollId });
+      return;
+    }
+    const neutral = (jid: string): string => this.host.toNeutralJid(jid);
+    if (
+      differentWaIds(
+        [original.key.remoteJid, original.key.remoteJidAlt],
+        [msg.key.remoteJid, msg.key.remoteJidAlt],
+        neutral,
+      ) ||
+      differentWaIds([key.remoteJid], [msg.key.remoteJid, msg.key.remoteJidAlt], neutral)
+    ) {
+      this.host.logger.warn('Ignoring poll vote targeting a poll from another chat', { pollId });
+      return;
+    }
+    // Encryption binds the *raw* author JIDs, not our neutral ids. LID/phone twins can both
+    // appear on modern keys; authenticate against those supplied identities before normalizing.
+    const authors = (authorKey: WAMessageKey): string[] => {
+      const ids = authorKey.fromMe
+        ? [this.host.getSocketOrNull()?.user?.id, this.host.getSocketOrNull()?.user?.lid, this.host.normalizedSelfJid()]
+        : authorKey.participant
+          ? [authorKey.participant, authorKey.participantAlt]
+          : [authorKey.remoteJid, authorKey.remoteJidAlt];
+      return [...new Set(ids.filter((id): id is string => !!id).map(id => b.jidNormalizedUser(id)))];
+    };
+    const creators = [...new Set([...authors(original.key), ...authors(key)])];
+    const voters = authors(msg.key);
+    if (!creators.length || !voters.length) {
+      this.host.logger.warn('Cannot decrypt poll vote without poll creator and voter identities', { pollId });
+      return;
+    }
+    let decrypted: ReturnType<typeof b.decryptPollVote> | undefined;
+    let failure: unknown;
+    for (const pollCreatorJid of creators) {
+      for (const voterJid of voters) {
+        try {
+          decrypted = b.decryptPollVote(update.vote, {
+            pollCreatorJid,
+            voterJid,
+            pollMsgId: pollId,
+            pollEncKey: secret,
+          });
+          break;
+        } catch (error) {
+          failure = error;
+        }
+      }
+      if (decrypted) break;
+    }
+    if (!decrypted) {
+      this.host.logger.warn('Could not decrypt poll vote', { pollId, error: String(failure) });
+      return;
+    }
+    const names = new Map(
+      poll.options.map(option => [
+        createHash('sha256')
+          .update(option.optionName ?? '')
+          .digest('hex'),
+        option.optionName ?? '',
+      ]),
+    );
+    const selectedOptions: string[] = [];
+    for (const hash of decrypted.selectedOptions ?? []) {
+      const name = names.get(Buffer.from(hash).toString('hex'));
+      if (name === undefined) {
+        this.host.logger.warn('Ignoring poll vote containing an unknown option', { pollId });
+        return;
+      }
+      selectedOptions.push(name);
+    }
+    const timestamp = Number(update.senderTimestampMs?.toString());
+    if (!Number.isFinite(timestamp) || timestamp <= 0) {
+      this.host.logger.warn('Ignoring poll vote without a valid sender timestamp', { pollId });
+      return;
+    }
+    this.host.getOnPollVote?.()?.({
+      pollId,
+      chatId: neutral(msg.key.remoteJid),
+      voterId: neutral(msg.key.fromMe ? this.host.normalizedSelfJid() : voters[0]),
+      selectedOptions,
+      timestamp: timestamp / 1000,
+    });
   }
 
   /**
